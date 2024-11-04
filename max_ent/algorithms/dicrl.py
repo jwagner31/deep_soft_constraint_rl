@@ -8,6 +8,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import precision_score, recall_score
+from max_ent.algorithms import icrl as ICRL
+import max_ent.gridworld.trajectory as T
+
 
 
 class ConstraintNetwork(nn.Module):
@@ -22,23 +25,34 @@ class ConstraintNetwork(nn.Module):
         x = torch.relu(self.fc2(x))
         return torch.sigmoid(self.fc3(x))  # Output is a probability
 
-def pretrain_constraint_network(constraint_net, trajectories, feature_extractor, epochs=50, lr=0.001):
+def pretrain_constraint_network(constraint_net, expert_trajectories, nonexpert_trajectories, feature_extractor, epochs=50, lr=0.001):
     """Pretrain the constraint network on expert trajectories using extracted feature vectors."""
     optimizer = optim.Adam(constraint_net.parameters(), lr=lr)
     criterion = nn.BCELoss()
     
     # Prepare training data from expert trajectories using the feature extractor
-    data = []
-    labels = []
-    for t in trajectories:
+    expert_data = []
+    expert_labels = []
+    for t in expert_trajectories:
         for s, a, s_ in t.transitions():
-            feature_vector = feature_extractor(s, a, s_)  # Extract the feature vector for the (s, a, s') transition
-            data.append(torch.tensor(feature_vector, dtype=torch.float32))
-            labels.append(0)  # Label as unconstrained (expert follows constraints)
+            feature_vector = feature_extractor(s, a, s_)
+            expert_data.append(torch.tensor(feature_vector, dtype=torch.float32))
+            expert_labels.append(0)  # Expert trajectories are unconstrained
 
-    data = torch.stack(data)
-    labels = torch.tensor(labels, dtype=torch.float32).unsqueeze(1)  # Shape: (N, 1)
+    nonexpert_data = []
+    nonexpert_labels = []
+    for t in nonexpert_trajectories:
+        for s, a, s_ in t.transitions():
+            feature_vector = feature_extractor(s, a, s_)
+            nonexpert_data.append(torch.tensor(feature_vector, dtype=torch.float32))
+            # Label based on assumed constraints; e.g., label as constrained (1)
+            nonexpert_labels.append(1)
 
+    # Combine expert and non-expert data and labels
+    data = torch.stack(expert_data + nonexpert_data)
+    labels = torch.tensor(expert_labels + nonexpert_labels, dtype=torch.float32).unsqueeze(1)
+
+    # Training loop
     for epoch in range(epochs):
         optimizer.zero_grad()
         output = constraint_net(data)
@@ -51,12 +65,11 @@ def pretrain_constraint_network(constraint_net, trajectories, feature_extractor,
         true_labels = labels
 
         # Calculate precision and recall
-        precision = precision_score(true_labels.detach().numpy(), preds.detach().numpy())
-        recall = recall_score(true_labels.detach().numpy(), preds.detach().numpy())
+        precision = precision_score(true_labels.detach().numpy(), preds.detach().numpy(), zero_division=1)
+        recall = recall_score(true_labels.detach().numpy(), preds.detach().numpy(), zero_division=1)
 
         if epoch % 2 == 0:
             print(f"Pretraining Epoch [{epoch}/{epochs}], Loss: {loss.item():.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}")
-
 
 def backward_causal(p_transition, reward, terminal, discount, eps=1e-5):
     n_states, _, n_actions = p_transition.shape
@@ -140,6 +153,28 @@ def ef_from_trajectories(features, trajectories):
 
     return fe / len(trajectories)
 
+def generate_constrained_trajectories(nominal_reward, start, terminal, p_transition, n_states, n_trajectories=1000):
+    """
+    Generate some "nonexpert" trajectories.
+    """
+    # parameters
+    discount = 0.9
+
+    # set up initial probabilities for trajectory generation
+    initial = np.zeros(n_states)
+    initial[start] = 1.0
+
+    # generate trajectories
+    policy = ICRL.backward_causal(
+        p_transition, nominal_reward, terminal, discount)
+    policy_exec = T.stochastic_policy_adapter(policy)
+    tjs = T.generate_trajectories_noworld(
+        n_trajectories, policy_exec, initial, terminal, p_transition, n_states)
+
+    if not tjs:
+        return False
+    return tjs
+
 
 def dicrl(nominal_rewards, p_transition, features, terminal, trajectories, optim, init, discount,
          eps=1e-4, eps_error=1e-2, burnout=100, max_iter=10000, max_penalty=200, log=None, initial_omega=None):
@@ -152,8 +187,10 @@ def dicrl(nominal_rewards, p_transition, features, terminal, trajectories, optim
 
     def feature_extractor(s, a, s_):
         return features[s, a, s_, :]
-    #pretrain constrain nn with expert trajectories
-    pretrain_constraint_network(constraint_net, trajectories, feature_extractor)
+    # pretrain constrain nn with expert trajectories and nonexpert
+    # generate some nonexpert
+    constrained_trajectories = generate_constrained_trajectories(nominal_rewards, [0], terminal, p_transition, n_states)
+    pretrain_constraint_network(constraint_net, trajectories, constrained_trajectories, feature_extractor)
     constraint_net.eval()
 
     # Don't count transitions that start with a terminal state
