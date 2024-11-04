@@ -9,10 +9,11 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 from max_ent.algorithms.icrl import icrl
+from max_ent.algorithms.dicrl import dicrl
 from max_ent.gridworld import Directions
 import max_ent.gridworld.feature as F
 import max_ent.examples.grid_plot as P
-from max_ent.algorithms.gridworld_icrl import generate_random_trajectories, learn_constraints, setup_mdp, \
+from max_ent.algorithms.gridworld_dicrl import generate_random_trajectories, learn_constraints, setup_mdp, \
     generate_mdft_trajectories, generate_trajectories, MDP, generate_weighted_average_trajectories, generate_random_trajectories, generate_greedy_trajectories
 
 

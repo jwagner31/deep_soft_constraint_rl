@@ -7,6 +7,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from sklearn.metrics import precision_score, recall_score
+
 
 class ConstraintNetwork(nn.Module):
     def __init__(self, feature_dim):
@@ -20,7 +22,7 @@ class ConstraintNetwork(nn.Module):
         x = torch.relu(self.fc2(x))
         return torch.sigmoid(self.fc3(x))  # Output is a probability
 
-def pretrain_constraint_network(constraint_net, trajectories, feature_extractor, epochs=10, lr=0.001):
+def pretrain_constraint_network(constraint_net, trajectories, feature_extractor, epochs=50, lr=0.001):
     """Pretrain the constraint network on expert trajectories using extracted feature vectors."""
     optimizer = optim.Adam(constraint_net.parameters(), lr=lr)
     criterion = nn.BCELoss()
@@ -37,16 +39,24 @@ def pretrain_constraint_network(constraint_net, trajectories, feature_extractor,
     data = torch.stack(data)
     labels = torch.tensor(labels, dtype=torch.float32).unsqueeze(1)  # Shape: (N, 1)
 
-    # Training loop
     for epoch in range(epochs):
         optimizer.zero_grad()
         output = constraint_net(data)
         loss = criterion(output, labels)
         loss.backward()
         optimizer.step()
-        
+
+        # Convert network outputs and labels to binary predictions
+        preds = (output >= 0.5).float()  # Threshold at 0.5 for binary classification
+        true_labels = labels
+
+        # Calculate precision and recall
+        precision = precision_score(true_labels.detach().numpy(), preds.detach().numpy())
+        recall = recall_score(true_labels.detach().numpy(), preds.detach().numpy())
+
         if epoch % 2 == 0:
-            print(f"Pretraining Epoch [{epoch}/{epochs}], Loss: {loss.item():.4f}")
+            print(f"Pretraining Epoch [{epoch}/{epochs}], Loss: {loss.item():.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}")
+
 
 def backward_causal(p_transition, reward, terminal, discount, eps=1e-5):
     n_states, _, n_actions = p_transition.shape
@@ -138,7 +148,6 @@ def dicrl(nominal_rewards, p_transition, features, terminal, trajectories, optim
     n_states, n_actions, _, n_features = features.shape
     feature_dim = n_features
 
-    
     constraint_net = ConstraintNetwork(feature_dim=feature_dim)
 
     def feature_extractor(s, a, s_):
@@ -181,7 +190,7 @@ def dicrl(nominal_rewards, p_transition, features, terminal, trajectories, optim
         # REPLACE ABOVE with nn forward pass
 
         # Backward, Forward
-        # REPLACE BACKWARD STEP WITH NN
+        # REPLACE BACKWARD STEP WITH NN ?
         policy = backward_causal(p_transition, reward, terminal, discount)
         d = forward(p_transition, p_initial, policy, terminal)
 
