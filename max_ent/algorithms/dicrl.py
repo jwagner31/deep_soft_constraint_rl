@@ -25,7 +25,7 @@ class ConstraintNetwork(nn.Module):
         x = torch.relu(self.fc2(x))
         return torch.sigmoid(self.fc3(x))  # Output is a probability
 
-def pretrain_constraint_network(constraint_net, expert_trajectories, nonexpert_trajectories, feature_extractor, epochs=50, lr=0.001):
+def pretrain_constraint_network(constraint_net, expert_trajectories, nonexpert_trajectories, feature_extractor, epochs=500, lr=0.001):
     """Pretrain the constraint network on expert trajectories using extracted feature vectors."""
     optimizer = optim.Adam(constraint_net.parameters(), lr=lr)
     criterion = nn.BCELoss()
