@@ -4,6 +4,7 @@ from max_ent.gridworld.gridworld import Directions
 import max_ent.gridworld as W
 from max_ent.algorithms import rl as RL
 from max_ent.algorithms import icrl as ICRL
+from max_ent.algorithms import dicrl as DICRL
 import max_ent.gridworld.trajectory as T
 import max_ent.optim as O
 import max_ent.gridworld.feature as F
@@ -131,7 +132,7 @@ def learn_constraints(nominal_rewards, world, terminal, trajectories,
     init = O.Constant(1e-6)
     optim = O.ExpSga(lr=lr, clip_grad_at=clip_grad_at)
 
-    omega = ICRL.icrl(nominal_rewards, world.p_transition, world.phi,
+    omega = DICRL.dicrl(nominal_rewards, world.p_transition, world.phi,
                       terminal, trajectories, optim, init, discount,
                       max_iter=max_iter, burnout=burn_out, eps=eps, log=log, initial_omega=initial_omega)
 
